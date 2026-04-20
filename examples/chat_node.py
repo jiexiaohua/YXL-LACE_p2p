@@ -45,7 +45,7 @@ async def main() -> None:
 
     remote_addr = parse_addr(args.peer) if args.peer else None
     if remote_addr:
-        await peer.connect(remote_addr)
+        await peer.connect(remote_addr, timeout=30.0)
 
     print("Type messages and press Enter. Ctrl+C to quit.")
     try:
