@@ -294,3 +294,135 @@ async def handshake_udp_symmetric(
         local_port, private_key, peer_public_key, timeout=timeout
     )
     return key, False, peer_ip
+
+
+async def handshake_udp_chat_symmetric(
+    peer_host: str,
+    peer_port: int,
+    local_port: int,
+    private_key: rsa.RSAPrivateKey,
+    peer_public_key: rsa.RSAPublicKey,
+    *,
+    timeout: float = 90.0,
+) -> Tuple[bytes, str, asyncio.DatagramTransport, asyncio.Queue]:
+    """
+    与 ``handshake_udp_symmetric`` 类似，但用于 UDP 聊天：握手成功后**复用同一个 UDP socket**继续收发。
+
+    返回 ``(session_key, peer_ip, transport, queue)``：
+    - ``transport/queue``：绑定在本机 ``local_port`` 上，供后续 UDP+AES 聊天直接使用（避免 close→rebind 的竞态）。
+    - ``peer_ip``：用于聊天时过滤来源地址。
+    """
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    transport, _ = await loop.create_datagram_endpoint(
+        lambda: _UdpQueueProto(queue),
+        local_addr=("0.0.0.0", local_port),
+    )
+
+    try:
+        deadline = loop.time() + timeout
+        peer: Addr = (peer_host, peer_port)
+
+        def send_typed(kind: int, rsa_blob: bytes) -> None:
+            transport.sendto(_pack_typed(kind, rsa_blob), peer)
+
+        if pubkey_initiator_is_local(private_key, peer_public_key):
+            # 先手：复用 transport/queue 进行握手，不关闭 socket。
+            r_a = secrets.token_bytes(CHALLENGE_BYTES)
+            c1 = rsa_oaep_encrypt(peer_public_key, r_a)
+
+            c2: Optional[bytes] = None
+            while loop.time() < deadline:
+                send_typed(KIND_C1, c1)
+                wait = min(C1_RESEND_SEC, deadline - loop.time())
+                if wait <= 0:
+                    break
+                try:
+                    raw, addr = await asyncio.wait_for(queue.get(), timeout=wait)
+                except asyncio.TimeoutError:
+                    continue
+                if addr[1] != peer_port:
+                    continue
+                try:
+                    kind, body = _unpack_typed(raw)
+                except MutualAuthFailed:
+                    continue
+                if kind != KIND_C2:
+                    continue
+                c2 = body
+                break
+
+            if c2 is None:
+                raise MutualAuthFailed("等待 Round1 应答超时（请确认对方已输入相同端口并已启动）")
+
+            try:
+                opened = rsa_oaep_decrypt(private_key, c2)
+            except Exception as exc:
+                raise MutualAuthFailed("Round1 解密失败") from exc
+            if not hmac.compare_digest(opened, r_a):
+                raise MutualAuthFailed("Round1 挑战不匹配")
+
+            c3, _ = await _recv_typed(
+                queue,
+                expect_kind=KIND_C3,
+                expect_addr=None,
+                deadline=deadline,
+                require_src_port=peer_port,
+            )
+            try:
+                r_b = rsa_oaep_decrypt(private_key, c3)
+            except Exception as exc:
+                raise MutualAuthFailed("Round2 解密失败") from exc
+            if len(r_b) != CHALLENGE_BYTES:
+                raise MutualAuthFailed("挑战长度无效")
+
+            c4 = rsa_oaep_encrypt(peer_public_key, r_b)
+            send_typed(KIND_C4, c4)
+
+            return derive_chat_key(r_a, r_b), peer_host, transport, queue
+
+        # 后手：同样复用 transport/queue；peer_ip 从首个 C1 的来源获得。
+        c1, peer_addr = await _recv_typed(
+            queue,
+            expect_kind=KIND_C1,
+            expect_addr=None,
+            deadline=deadline,
+            require_src_port=None,
+        )
+        peer_ip = peer_addr[0]
+
+        try:
+            r_a = rsa_oaep_decrypt(private_key, c1)
+        except Exception as exc:
+            raise MutualAuthFailed("Round1 解密失败") from exc
+        if len(r_a) != CHALLENGE_BYTES:
+            raise MutualAuthFailed("挑战长度无效")
+
+        c2 = rsa_oaep_encrypt(peer_public_key, r_a)
+        transport.sendto(_pack_typed(KIND_C2, c2), peer_addr)
+
+        r_b = secrets.token_bytes(CHALLENGE_BYTES)
+        c3 = rsa_oaep_encrypt(peer_public_key, r_b)
+        transport.sendto(_pack_typed(KIND_C3, c3), peer_addr)
+
+        c4, addr2 = await _recv_typed(
+            queue,
+            expect_kind=KIND_C4,
+            expect_addr=peer_addr,
+            deadline=deadline,
+            require_src_port=None,
+        )
+        if addr2 != peer_addr:
+            raise MutualAuthFailed("Round2 来源地址不一致")
+
+        try:
+            opened = rsa_oaep_decrypt(private_key, c4)
+        except Exception as exc:
+            raise MutualAuthFailed("Round2 解密失败") from exc
+        if not hmac.compare_digest(opened, r_b):
+            raise MutualAuthFailed("Round2 挑战不匹配")
+
+        return derive_chat_key(r_a, r_b), peer_ip, transport, queue
+    except Exception:
+        transport.close()
+        raise

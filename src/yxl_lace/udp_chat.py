@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import Optional, Tuple
+from typing import Tuple
 
 from .crypto import aes_gcm_open, aes_gcm_seal
 
@@ -25,26 +25,20 @@ class _UdpQueueProto(asyncio.DatagramProtocol):
         self.queue.put_nowait((data, addr))
 
 
-async def udp_chat_loop(
+async def udp_chat_loop_with_transport(
     *,
     session_key: bytes,
-    local_port: int,
     peer_ip: str,
     peer_port: int,
+    transport: asyncio.DatagramTransport,
+    queue: asyncio.Queue,
 ) -> None:
     """
     UDP + AES-GCM 全双工聊天。
 
-    - 本机固定绑定 local_port（与 UDP 握手端口一致，便于对端回包）。
+    - 复用握手阶段创建的 UDP transport（已绑定在本机默认端口上）。
     - 仅接受来自 (peer_ip, peer_port) 的报文，避免局域网噪声干扰。
     """
-    loop = asyncio.get_running_loop()
-    queue: asyncio.Queue = asyncio.Queue()
-    transport, _ = await loop.create_datagram_endpoint(
-        lambda: _UdpQueueProto(queue),
-        local_addr=("0.0.0.0", local_port),
-        reuse_port=True,
-    )
     peer: Addr = (peer_ip, peer_port)
 
     async def recv_task() -> None:
@@ -68,8 +62,10 @@ async def udp_chat_loop(
 
     recv = asyncio.create_task(recv_task())
     try:
+        sockname = transport.get_extra_info("sockname")
+        local = f"{sockname[0]}:{sockname[1]}" if sockname else "0.0.0.0:?"
         print(
-            f"UDP 加密聊天已就绪：本机 0.0.0.0:{local_port} ↔ 对端 {peer_ip}:{peer_port}\n"
+            f"UDP 加密聊天已就绪：本机 {local} ↔ 对端 {peer_ip}:{peer_port}\n"
             "输入 /quit 退出。",
             flush=True,
         )
@@ -88,4 +84,30 @@ async def udp_chat_loop(
         recv.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await recv
+        transport.close()
+
+
+async def udp_chat_loop(
+    *,
+    session_key: bytes,
+    local_port: int,
+    peer_ip: str,
+    peer_port: int,
+) -> None:
+    """兼容旧调用：单独创建 UDP transport 并聊天。"""
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    transport, _ = await loop.create_datagram_endpoint(
+        lambda: _UdpQueueProto(queue),
+        local_addr=("0.0.0.0", local_port),
+    )
+    try:
+        await udp_chat_loop_with_transport(
+            session_key=session_key,
+            peer_ip=peer_ip,
+            peer_port=peer_port,
+            transport=transport,
+            queue=queue,
+        )
+    finally:
         transport.close()

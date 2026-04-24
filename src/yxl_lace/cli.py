@@ -16,8 +16,8 @@ from yxl_lace.crypto import (
     write_public_key_pem,
 )
 from yxl_lace.print import index_out, logo_out, operate_out
-from yxl_lace.udp_auth import MutualAuthFailed, handshake_udp_symmetric, pubkey_initiator_is_local
-from yxl_lace.udp_chat import udp_chat_loop
+from yxl_lace.udp_auth import MutualAuthFailed, handshake_udp_chat_symmetric, pubkey_initiator_is_local
+from yxl_lace.udp_chat import udp_chat_loop_with_transport
 
 DEFAULT_KEY_DIR = Path.home() / ".yxl_lace"
 DEFAULT_PRIVATE_KEY_PATH = DEFAULT_KEY_DIR / "rsa_private.pem"
@@ -225,7 +225,7 @@ async def cmd_connect_user() -> None:
     print("正在进行 UDP 认证…")
 
     try:
-        session_key, tcp_client, peer_ip = await handshake_udp_symmetric(
+        session_key, peer_ip, transport, queue = await handshake_udp_chat_symmetric(
             host, peer_port, local_port, sk, peer_pk
         )
     except MutualAuthFailed as exc:
@@ -236,15 +236,16 @@ async def cmd_connect_user() -> None:
         return
 
     print("UDP 认证成功。正在进入 UDP + AES-GCM 加密聊天…", flush=True)
-    # responder 端握手 socket close 可能不是瞬时生效；让事件循环调度一次以避免紧接着 bind 同端口时报 EADDRINUSE。
-    await asyncio.sleep(0)
-    final_peer_ip = peer_ip or host
-    await udp_chat_loop(
-        session_key=session_key,
-        local_port=local_port,
-        peer_ip=_canonical_peer_ip(final_peer_ip),
-        peer_port=peer_port,
-    )
+    try:
+        await udp_chat_loop_with_transport(
+            session_key=session_key,
+            peer_ip=_canonical_peer_ip(peer_ip),
+            peer_port=peer_port,
+            transport=transport,
+            queue=queue,
+        )
+    finally:
+        transport.close()
 
 
 def cmd_save_user_stub() -> None:
