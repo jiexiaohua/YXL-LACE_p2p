@@ -2,6 +2,7 @@ from .aes_gcm import aes_gcm_open, aes_gcm_seal
 from .kdf import derive_chat_key
 from .rsa_keys import (
     generate_rsa_keypair,
+    load_peer_rsa_public_key,
     load_private_key_from_pem,
     load_public_key_from_pem,
     private_key_to_pem,
@@ -17,6 +18,7 @@ __all__ = [
     "derive_chat_key",
     "generate_rsa_keypair",
     "load_private_key_from_pem",
+    "load_peer_rsa_public_key",
     "load_public_key_from_pem",
     "private_key_to_pem",
     "public_key_to_pem",

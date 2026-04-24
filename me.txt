@@ -1,0 +1,24 @@
+
+select> 2
+局域网对称连接：本机使用「默认端口」收 UDP/TCP（可在菜单 (3) 修改，默认 9001）。
+只需输入对方 IPv4、对方端口，以及对方公钥；可同时回车开始。
+角色由 RSA 公钥自动决定：公钥（二进制序）较小的一方先发 UDP、并作为 TCP 客户端。
+对方 IPv4> 10.14.191.49
+对方端口> 9002
+请粘贴对方的 RSA 公钥（PEM）。粘贴完毕后单独一行输入一个英文句点 . 并回车结束：
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuZp7kfS7AJKTesP+7TCG
+BbQBmQOSRQ29vE/RdWNDnoXxSL3NdU64EQ44qjcgpNv8LK3O2j/5v+lqqq4SgJYZ
+Rvvn8me66kkl+TzZb86MZUsiblOjlk8DJs0myRD0cOE1R5BXk5Bm82cGZkAVyC3+
+GohGmzXtwaLAheUgTU74HFjQreyElk+jatvFx/Y5CXgy30W/WcMr4zY2EOyTncYP
+yuLXWHb+j1AWieNMz2ra38Hoxim42NniGozTSndhZA8+moqAmr3hSSqse6YQlaov
+A3mACBsrltfLhTmoWSXEIco/315ZNl5NXg93NffQVLZEixnoqvAX1c//dI+Q7ST6
+rwIDAQAB
+-----END PUBLIC KEY-----
+.
+本机默认端口：9001；对端：10.14.191.49:9002
+本机角色：先手（UDP 发往对方端口 → TCP 连接对方端口）
+正在进行 UDP 认证…
+UDP 认证成功。正在建立 TCP 加密聊天…
+TCP 已连接。输入 /quit 退出聊天。
+> /quit

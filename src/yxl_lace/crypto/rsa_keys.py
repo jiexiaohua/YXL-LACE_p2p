@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 from pathlib import Path
 
@@ -40,6 +42,27 @@ def load_private_key_from_pem(data: bytes, password: bytes | None = None) -> rsa
 
 def load_public_key_from_pem(data: bytes) -> rsa.RSAPublicKey:
     key = serialization.load_pem_public_key(data)
+    if not isinstance(key, rsa.RSAPublicKey):
+        raise TypeError("PEM is not an RSA public key")
+    return key
+
+
+def load_peer_rsa_public_key(data: bytes) -> rsa.RSAPublicKey:
+    """解析对方公钥：完整 PEM（SubjectPublicKeyInfo），或仅有 Base64 正文（SPKI DER，无 BEGIN/END 行）。"""
+    blob = data.strip()
+    if not blob:
+        raise ValueError("公钥为空")
+    if b"-----BEGIN" in blob:
+        return load_public_key_from_pem(blob)
+    try:
+        der = base64.b64decode(b"".join(blob.split()), validate=False)
+    except binascii.Error as exc:
+        raise ValueError(
+            "公钥须为完整 PEM（含 -----BEGIN/END PUBLIC KEY-----），或仅为 Base64 的公钥正文"
+        ) from exc
+    if not der:
+        raise ValueError("公钥解码后为空")
+    key = serialization.load_der_public_key(der)
     if not isinstance(key, rsa.RSAPublicKey):
         raise TypeError("PEM is not an RSA public key")
     return key

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 from pathlib import Path
 
 from yxl_lace.crypto import (
@@ -26,6 +27,18 @@ DEFAULT_COMM_PORT_FALLBACK = 9001
 
 TCP_CONNECT_RETRIES = 32
 TCP_CONNECT_DELAY_S = 0.25
+
+
+def _canonical_peer_ip(addr: object) -> str:
+    """与 UDP 记录的 IPv4 和 TCP peername（可能为 ::ffff:x.x.x.x）统一成可比较形式。"""
+    if addr is None:
+        return ""
+    ip = ipaddress.ip_address(str(addr))
+    if isinstance(ip, ipaddress.IPv6Address):
+        mapped = ip.ipv4_mapped
+        if mapped is not None:
+            return str(mapped)
+    return str(ip)
 
 
 def read_default_comm_port() -> int:
@@ -122,7 +135,7 @@ async def _run_tcp_listen(peer_ip: str, port: int, session_key: bytes) -> None:
 
     async def _on_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         peername = writer.get_extra_info("peername")
-        if peername is None or peername[0] != peer_ip:
+        if peername is None or _canonical_peer_ip(peername[0]) != _canonical_peer_ip(peer_ip):
             print(f"已拒绝 TCP 连接：{peername}（仅接受 {peer_ip}）")
             writer.close()
             with contextlib.suppress(Exception):

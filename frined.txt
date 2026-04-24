@@ -1,0 +1,31 @@
+A3mACBsrltfLhTmoWSXEIco/315ZNl5NXg93NffQVLZEixnoqvAX1c//dI+Q7ST6
+rwIDAQAB
+-----END PUBLIC KEY-----
+
+please select your operation
+(0) quit project         (1) creat RSA key pair
+(2) connect user         (3) set default local port
+(4) save user
+
+select> 2
+局域网对称连接：本机使用「默认端口」收 UDP/TCP（可在菜单 (3) 修改，默认 9001）。
+只需输入对方 IPv4、对方端口，以及对方公钥；可同时回车开始。
+角色由 RSA 公钥自动决定：公钥（二进制序）较小的一方先发 UDP、并作为 TCP 客户端。
+对方 IPv4> 10.14.191.138
+对方端口> 9001
+请粘贴对方的 RSA 公钥（PEM）。粘贴完毕后单独一行输入一个英文句点 . 并回车结束：
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAohEJwOzzTEYGW1k46+H/
+Ai+JqyPwwTupbFrRyvpyF2MthDQhxfmGnBl0al5tS+H+AsFUvkwti0T1tztkZFJF
+b7wof8a8dOYs7C4LuGrMZF/SM5ON/kihlx+kH4X4ZVMV9SWOJ7RXCX94snTrC8bL
+XPHoYlD7ywk8gWZ7OwVGlumtEAOQ+8eaOstN5QgCMkuyK/PXBZiFX5f0WZ42L8jw
+qVlUNWTUfsuPkBVsKVLq+HDgy4PaqvmhK5++GKm9Rmj4JjxGiI07sWf5JvhXgNS8
+S3YLu6qqF1wUifm9RUccwysYQf3VeukwGhjBIJOEQGbdy1EEfPaOuCb3nK1LprRX
+dwIDAQAB
+-----END PUBLIC KEY-----
+.
+本机默认端口：9002；对端：10.14.191.138:9001
+本机角色：后手（UDP 监听本机 9002 → TCP 等待对方连本机 9002）
+正在进行 UDP 认证…
+UDP 认证成功。正在建立 TCP 加密聊天…
+等待 10.14.191.138 的 TCP 连接（本机端口 9002）…
