@@ -15,7 +15,7 @@ from yxl_lace.crypto import (
     write_private_key_pem,
     write_public_key_pem,
 )
-from yxl_lace.print import index_out, logo_out, operate_out
+from yxl_lace.print import get_lang, index_out, logo_out, operate_out, set_lang, t
 from yxl_lace.udp_auth import MutualAuthFailed, handshake_udp_chat_symmetric, pubkey_initiator_is_local
 from yxl_lace.udp_chat import udp_chat_loop_with_transport
 
@@ -63,11 +63,11 @@ def prompt_nonempty(prompt: str) -> str:
         s = input(prompt).strip()
         if s:
             return s
-        print("输入不能为空。")
+        print(t("input_empty"))
 
 
 def prompt_peer_public_pem() -> bytes:
-    print("请粘贴对方的 RSA 公钥（PEM）。粘贴完毕后单独一行输入一个英文句点 . 并回车结束：")
+    print(t("peer_pubkey_paste"))
     lines: list[str] = []
     while True:
         line = input()
@@ -76,7 +76,7 @@ def prompt_peer_public_pem() -> bytes:
         lines.append(line)
     raw = "\n".join(lines).strip()
     if not raw:
-        raise ValueError("公钥为空")
+        raise ValueError(t("peer_pubkey_empty"))
     return raw.encode("utf-8")
 
 
@@ -87,34 +87,34 @@ def cmd_generate_rsa() -> None:
     pub_pem = public_key_to_pem(sk.public_key())
     write_private_key_pem(DEFAULT_PRIVATE_KEY_PATH, priv_pem)
     write_public_key_pem(DEFAULT_PUBLIC_KEY_PATH, pub_pem)
-    print("已保存私钥：", DEFAULT_PRIVATE_KEY_PATH)
-    print("已保存公钥：", DEFAULT_PUBLIC_KEY_PATH)
-    print("\n--- 公钥（请发给对方）---\n")
+    print(t("rsa_saved_priv", path=DEFAULT_PRIVATE_KEY_PATH))
+    print(t("rsa_saved_pub", path=DEFAULT_PUBLIC_KEY_PATH))
+    print("\n" + t("rsa_pub_share_hdr") + "\n")
     print(pub_pem.decode("utf-8"))
 
 
 def cmd_set_default_port() -> None:
     cur = read_default_comm_port()
-    print(f"当前本机默认通信端口（UDP 监听 / TCP 监听）：{cur}")
-    raw = input(f"新端口 (1–65535，直接回车保持 {cur})> ").strip()
+    print(t("default_port_current", port=cur))
+    raw = input(t("default_port_prompt", port=cur)).strip()
     if not raw:
-        print("未修改。")
+        print(t("default_port_unchanged"))
         return
     try:
         p = int(raw)
     except ValueError:
-        print("必须是整数。")
+        print(t("port_int_required"))
         return
     if not (1 <= p <= 65535):
-        print("端口须在 1–65535。")
+        print(t("port_range"))
         return
     write_default_comm_port(p)
-    print(f"已保存默认端口：{p}（写入 {DEFAULT_COMM_PORT_FILE}）")
+    print(t("default_port_saved", port=p, file=DEFAULT_COMM_PORT_FILE))
 
 
 def _load_local_private_key():
     if not DEFAULT_PRIVATE_KEY_PATH.is_file():
-        print(f"未找到本地私钥：{DEFAULT_PRIVATE_KEY_PATH}，请先选择 (1) 生成密钥对。")
+        print(t("need_generate_key", path=DEFAULT_PRIVATE_KEY_PATH))
         return None
     return load_private_key_from_pem(DEFAULT_PRIVATE_KEY_PATH.read_bytes())
 
@@ -188,54 +188,50 @@ async def cmd_connect_user() -> None:
         return
 
     local_port = read_default_comm_port()
-    print("局域网对称连接：本机使用「默认端口」收 UDP（可在菜单 (3) 修改，默认 9001）。")
-    print("只需输入对方 IPv4、对方端口，以及对方公钥；可同时回车开始。")
-    print("角色由 RSA 公钥自动决定：公钥（二进制序）较小的一方先发 UDP。")
+    # 这些提示信息的详细版可以后续扩展；这里保持简洁并走 i18n。
 
-    host = prompt_nonempty("对方 IPv4> ")
+    host = prompt_nonempty(t("peer_ipv4_prompt"))
     try:
-        peer_port = int(prompt_nonempty("对方端口> "))
+        peer_port = int(prompt_nonempty(t("peer_port_prompt")))
     except ValueError:
-        print("端口必须是整数。")
+        print(t("port_int_required"))
         return
     if not (1 <= peer_port <= 65535):
-        print("端口须在 1–65535。")
+        print(t("port_range"))
         return
 
     try:
         pem = prompt_peer_public_pem()
         peer_pk = load_public_key_from_pem(pem)
     except Exception as exc:
-        print(f"公钥无效：{exc}")
+        print(t("pubkey_invalid", err=exc))
         return
 
     try:
         is_initiator = pubkey_initiator_is_local(sk, peer_pk)
     except MutualAuthFailed as exc:
-        print(f"{exc}")
+        # pubkey_initiator_is_local 抛的消息本身已在 i18n 表中覆盖主要情况
+        msg = t("pubkey_same") if "公钥相同" in str(exc) or "identical" in str(exc) else str(exc)
+        print(msg)
         return
 
-    print(f"本机默认端口：{local_port}；对端：{host}:{peer_port}")
-    print(
-        "本机角色："
-        + (
-            "先手（UDP 发往对方端口）" if is_initiator else f"后手（UDP 监听本机 {local_port}）"
-        )
-    )
-    print("正在进行 UDP 认证…")
+    print(t("local_port_show", local_port=local_port, host=host, peer_port=peer_port))
+    role = t("role_initiator") if is_initiator else t("role_responder", local_port=local_port)
+    print(t("role_prefix") + role)
+    print(t("udp_auth_start"))
 
     try:
         session_key, peer_ip, transport, queue = await handshake_udp_chat_symmetric(
             host, peer_port, local_port, sk, peer_pk
         )
     except MutualAuthFailed as exc:
-        print(f"认证失败：{exc}")
+        print(t("udp_auth_fail", err=exc))
         return
     except (OSError, asyncio.TimeoutError) as exc:
-        print(f"UDP 握手失败：{exc}")
+        print(t("udp_handshake_fail", err=exc))
         return
 
-    print("UDP 认证成功。正在进入 UDP + AES-GCM 加密聊天…", flush=True)
+    print(t("udp_auth_ok"), flush=True)
     try:
         await udp_chat_loop_with_transport(
             session_key=session_key,
@@ -249,7 +245,21 @@ async def cmd_connect_user() -> None:
 
 
 def cmd_save_user_stub() -> None:
-    print("(4) save user — 暂未实现。")
+    print(t("save_user_todo"))
+
+
+def cmd_switch_language() -> None:
+    cur = get_lang()
+    print(t("lang_current", lang=cur))
+    raw = input(t("lang_prompt", lang=cur)).strip().lower()
+    if not raw:
+        return
+    try:
+        set_lang(raw)
+    except ValueError:
+        print(t("lang_invalid"))
+        return
+    print(t("lang_saved", lang=raw))
 
 
 async def async_main() -> None:
@@ -257,9 +267,9 @@ async def async_main() -> None:
     index_out()
     while True:
         operate_out()
-        choice = input("select> ").strip()
+        choice = input(t("select_prompt")).strip()
         if choice == "0":
-            print("再见。")
+            print(t("bye"))
             break
         if choice == "1":
             cmd_generate_rsa()
@@ -269,8 +279,10 @@ async def async_main() -> None:
             cmd_set_default_port()
         elif choice == "4":
             cmd_save_user_stub()
+        elif choice == "5":
+            cmd_switch_language()
         else:
-            print("无效选项，请输入 0–4。")
+            print(t("invalid_choice"))
 
 
 def main() -> None:

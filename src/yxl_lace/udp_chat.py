@@ -6,6 +6,7 @@ import logging
 from typing import Tuple
 
 from .crypto import aes_gcm_open, aes_gcm_seal
+from .print import t
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,7 @@ async def udp_chat_loop_with_transport(
         sockname = transport.get_extra_info("sockname")
         local = f"{sockname[0]}:{sockname[1]}" if sockname else "0.0.0.0:?"
         print(
-            f"UDP 加密聊天已就绪：本机 {local} ↔ 对端 {peer_ip}:{peer_port}\n"
-            "输入 /quit 退出。",
+            t("chat_ready", local=local, peer_ip=peer_ip, peer_port=peer_port),
             flush=True,
         )
         while True:
@@ -76,7 +76,7 @@ async def udp_chat_loop_with_transport(
                 break
             payload = line.encode("utf-8")
             if len(payload) > MAX_UDP_PLAIN:
-                print(f"消息过长（>{MAX_UDP_PLAIN} bytes），请分段发送。", flush=True)
+                print(t("chat_msg_too_long", max_bytes=MAX_UDP_PLAIN), flush=True)
                 continue
             blob = aes_gcm_seal(session_key, payload)
             transport.sendto(blob, peer)
