@@ -27,6 +27,8 @@ DEFAULT_COMM_PORT_FALLBACK = 9001
 
 TCP_CONNECT_RETRIES = 32
 TCP_CONNECT_DELAY_S = 0.25
+# 服务端在校验对端 IP 后发出；客户端收到后才提示「TCP 已连接」，避免仅内核建连成功但服务端已拒绝时的误报。
+TCP_ROLE_ACK = b"\x01"
 
 
 def _canonical_peer_ip(addr: object) -> str:
@@ -136,8 +138,14 @@ async def _run_tcp_listen(peer_ip: str, port: int, session_key: bytes) -> None:
     async def _on_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             peername = writer.get_extra_info("peername")
-            if peername is None or _canonical_peer_ip(peername[0]) != _canonical_peer_ip(peer_ip):
-                print(f"已拒绝 TCP 连接：{peername}（仅接受 {peer_ip}）", flush=True)
+            exp = _canonical_peer_ip(peer_ip)
+            obs = _canonical_peer_ip(peername[0]) if peername else ""
+            if peername is None or obs != exp:
+                print(
+                    f"已拒绝 TCP 连接：{peername}（仅接受来自 {peer_ip}；"
+                    f"规范化地址 收到 {obs!r} ≠ 期望 {exp!r}）",
+                    flush=True,
+                )
                 writer.close()
                 with contextlib.suppress(Exception):
                     await writer.wait_closed()
@@ -147,6 +155,8 @@ async def _run_tcp_listen(peer_ip: str, port: int, session_key: bytes) -> None:
                 with contextlib.suppress(Exception):
                     await writer.wait_closed()
                 return
+            writer.write(TCP_ROLE_ACK)
+            await writer.drain()
             first_conn.set_result((reader, writer))
         except Exception as exc:
             print(f"处理入站 TCP 时出错：{exc!r}（peername={writer.get_extra_info('peername')!r}）", flush=True)
@@ -170,7 +180,7 @@ async def _run_tcp_listen(peer_ip: str, port: int, session_key: bytes) -> None:
             with contextlib.suppress(asyncio.CancelledError):
                 await serve_task
 
-    print("TCP 已连接。输入 /quit 退出聊天。")
+    print("TCP 已连接。输入 /quit 退出聊天。", flush=True)
     await chat_loop(reader, writer, session_key)
 
 
@@ -234,10 +244,34 @@ async def cmd_connect_user() -> None:
     if tcp_client:
         try:
             reader, writer = await _tcp_connect_with_retry(host, peer_port)
+            try:
+                ack = await asyncio.wait_for(reader.readexactly(1), timeout=10.0)
+            except asyncio.IncompleteReadError:
+                print(
+                    "TCP 被对方关闭（常见于：连到的不是本程序、端口被其它进程占用，"
+                    "或服务端因 IP 与 UDP 阶段记录不一致而拒绝）。",
+                    flush=True,
+                )
+                writer.close()
+                with contextlib.suppress(Exception):
+                    await writer.wait_closed()
+                return
+            except asyncio.TimeoutError:
+                print("等待对方 TCP 确认超时。", flush=True)
+                writer.close()
+                with contextlib.suppress(Exception):
+                    await writer.wait_closed()
+                return
+            if ack != TCP_ROLE_ACK:
+                print(f"TCP 握手异常：收到 {ack!r}，可能不是 YXL-LACE 对端。", flush=True)
+                writer.close()
+                with contextlib.suppress(Exception):
+                    await writer.wait_closed()
+                return
         except Exception as exc:
             print(f"TCP 连接失败：{exc}")
             return
-        print("TCP 已连接。输入 /quit 退出聊天。")
+        print("TCP 已连接。输入 /quit 退出聊天。", flush=True)
         await chat_loop(reader, writer, session_key)
     else:
         assert peer_ip is not None
